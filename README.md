@@ -6,16 +6,14 @@ A Clojure library designed to import a CSV file into an SQL table. It can be run
 
 Ensure the following variable are available
 
-DB_NAME_RED_PROD_ICL
-DB_USER_RED_PROD_ICL
-DB_HOST_RED_PROD_ICL
-DB_PASSWORD_RED_PROD_ICL
+DB_NAME_RED_PROD_ICL  
+DB_USER_RED_PROD_ICL  
+DB_HOST_RED_PROD_ICL  
+DB_PASSWORD_RED_PROD_ICL  
 
 ## Usage
 
 `lein run "resources/path/to/file.csv"`
-
-FIXME
 
 ## License
 
