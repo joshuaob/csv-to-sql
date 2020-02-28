@@ -94,6 +94,13 @@
         date)))
   )
 
+; FIXME: is this format correct
+(defn current-financial-year
+  [date]
+  (if-not (nil? date)
+    (.format (java.text.SimpleDateFormat. "yyyy") date))
+  )
+
 (defn parse-orcid
   [orcid]
   (str/join (str/split
@@ -133,7 +140,7 @@
   [value]
   (cond
     (= "In Set-Up" value) "In set up"
-    :else value))
+    :else (str/trim value)))
 
 ; FIXME: date may not always be in desired format
 (defn String->Date
@@ -155,27 +162,29 @@
   (if (not-empty str)
     (Double/parseDouble str)))
 
+; FIXME: verify a status is unique by study id only
+; FIXME: add status missing
 (defn create-study-status
   [raw-csv-data]
   (doseq [row raw-csv-data]
     (def study-title (get row :title))
     (def study (first (jdbc/query db-spec ["SELECT * FROM studies WHERE title = ? LIMIT 1" study-title])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_statuses WHERE study_id = ? AND year = ? LIMIT 1" (get study :id) (study-year (str (get study :start_date)))])))
-
+    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_statuses WHERE study_id = ? LIMIT 1" (get study :id)])))
     (if (nil? duplicate)
-      (if-not (nil? (get study :start_date))
-        (if-not (nil? (get study :status))
-        (do (println "No duplicate")
-            (jdbc/execute! db-spec ["INSERT INTO study_statuses SET
-                                                study_id = ?,
-                                                year = ?,
-                                                status = ?"
-                                                (get study :id),
-                                                (study-year (str (get study :start_date))),
-                                                (study-status (get row :status))
-                                                ]))
-          (println "Skipping import: Study has no status"))
-        (println "Skipping import: Study has no start_date"))
+      (if-not (empty? (get row :status))
+        (if-not (= "Closed" (study-status (get row :status)))
+          (do (println "No duplicate")
+              (jdbc/execute! db-spec ["INSERT INTO study_statuses SET
+                                                  study_id = ?,
+                                                  year = ?,
+                                                  status = ?"
+                                                  (get study :id),
+                                                  (current-financial-year (java.util.Date.)),
+                                                  (study-status (get row :status))
+                                                  ])
+                                                  )
+          (println "Skipped:: Status is Closed"))
+        (println "Skipping import: Study has no status"))
       (println "Duplicate found"))
     )
   )
@@ -435,8 +444,8 @@
                     (#(if (= table "people") (post-process-people %) %))
                     (#(if (= table "publications") (post-process-publications %) %))))
 
-
-  (import-csv table csv-data)
+  ; people and publicationss
+  ; (import-csv table csv-data)
 
  (if (= table "people")
   (do
