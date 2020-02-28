@@ -15,8 +15,6 @@ DB_PASSWORD_RED_PROD_ICL
 
 `lein run "resources/path/to/file.csv"`
 
-FIXME
-
 ## License
 
 Copyright © 2020 FIXME
