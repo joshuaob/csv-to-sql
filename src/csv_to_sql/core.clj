@@ -50,7 +50,7 @@
             repeat)
             (rest csv-data)))
 
-; FIXME: Ignore duplicates
+; FIXME: Ignore duplicates or import only once 
 (defn import-csv
   [table rows]
   (jdbc/insert-multi! db-spec table rows))
@@ -115,10 +115,6 @@
 (defn intervention
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM interventions WHERE name = ? LIMIT 1" name])) :id))
-
-; (defn funding-category
-;   [name]
-;   (get (first (jdbc/query db-spec ["SELECT id FROM interventions WHERE name = ? LIMIT 1" name])) :id))
 
 ; FIXME: remove underscore
 (defn project_impact
