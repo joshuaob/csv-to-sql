@@ -50,7 +50,7 @@
             repeat)
             (rest csv-data)))
 
-; FIXME: Ignore duplicates or import only once 
+; FIXME: Ignore duplicates or import only once
 (defn import-csv
   [table rows]
   (jdbc/insert-multi! db-spec table rows))
@@ -67,10 +67,12 @@
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM research_themes WHERE name = ? LIMIT 1" name])) :id))
 
+; FIXME: remove underscore
 (defn research_programme
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM research_programmes WHERE name = ? LIMIT 1" name])) :id))
 
+; FIXME: remove underscore
 (defn research_type
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM research_types WHERE name = ? LIMIT 1" name])) :id))
@@ -344,7 +346,7 @@
     )
   )
 
-(defn post-process-studies
+(defn pre-process-studies
   [csv-data-maps]
   (->> csv-data-maps
     (map #(dissoc %
@@ -362,8 +364,8 @@
       :total_external_funding_awarded
       :main_funding_dhsc_or_nihr
       :main_funding_category
-      :research_programme_id
-      :research_theme_id
+      ; :research_programme_id
+      ; :research_theme_id
       :project_link_to_crf_cct
       :contract_research_organisation
       :project_lead_title
@@ -371,6 +373,8 @@
       :sponsor
       ))
 
+    (map (fn [csv-record]
+           (update csv-record :research_theme_id #(research-theme %))))
     (map (fn [csv-record]
            (update csv-record :iras_id #(String->Double %))))
     (map (fn [csv-record]
@@ -399,7 +403,7 @@
           (update csv-record :project_purpose_id #(project_purpose %))))
     ))
 
-(defn post-process-people
+(defn pre-process-people
   [csv-data-maps]
   (->> csv-data-maps
     (map #(dissoc %
@@ -416,7 +420,7 @@
            (update csv-record :orcid_id #(parse-orcid %))))
     ))
 
-(defn post-process-publications
+(defn pre-process-publications
   [csv-data-maps]
   (->> csv-data-maps
     (map (fn [csv-record]
@@ -429,6 +433,17 @@
            (update csv-record :open_access #(yes-no-to-int %))))
     ))
 
+(defn post-process-studies
+  [raw-csv-data]
+  (create-study-funding raw-csv-data)
+  (create-organisation-involvement raw-csv-data)
+  (create-study-status raw-csv-data))
+
+(defn post-process-people
+  [raw-csv-data]
+  (create-person-theme-associations raw-csv-data)
+  (create-person-roles raw-csv-data))
+
 (defn import-csv-file
  [csv-file]
  (def table (get csv-file-to-sql-table csv-file))
@@ -436,32 +451,18 @@
                     csv-data->maps))
 
  (def csv-data (->> raw-csv-data
-                    (#(if (= table "studies") (post-process-studies %) %))
-                    (#(if (= table "people") (post-process-people %) %))
-                    (#(if (= table "publications") (post-process-publications %) %))))
+                    (#(if (= table "studies") (pre-process-studies %) %))
+                    (#(if (= table "people") (pre-process-people %) %))
+                    (#(if (= table "publications") (pre-process-publications %) %))))
 
-  ; people and publicationss
-  ; (import-csv table csv-data)
+  (import-csv table csv-data)
 
- (if (= table "people")
-  (do
-    (create-person-theme-associations raw-csv-data)
-    (create-person-roles raw-csv-data)
+  (if (= table "people")
+    (post-process-people raw-csv-data)
     )
-  )
 
- (if (= table "studies")
-   (do
-     (create-study-theme-associations raw-csv-data)
-     (create-study-funding raw-csv-data)
-     (create-organisation-involvement raw-csv-data)
-     (create-study-status raw-csv-data)
-    ))
-
- (if (= table "publications")
-  (create-publication-theme-associations raw-csv-data)
-  )
- )
+  (if (= table "studies")
+    (post-process-studies raw-csv-data)))
 
 (defn -main
   [csv-file]
