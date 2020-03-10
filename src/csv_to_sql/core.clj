@@ -67,13 +67,14 @@
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM research_themes WHERE name = ? LIMIT 1" name])) :id))
 
-; FIXME: remove underscore
-(defn research_programme
+; FIXME: research programmes table does not exist on red icl
+(defn research-programme
   [name]
-  (get (first (jdbc/query db-spec ["SELECT id FROM research_programmes WHERE name = ? LIMIT 1" name])) :id))
+  (if (empty? name)
+    nil
+    (get (first (jdbc/query db-spec ["SELECT id FROM research_programmes WHERE name = ? LIMIT 1" name])) :id)))
 
-; FIXME: remove underscore
-(defn research_type
+(defn research-type
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM research_types WHERE name = ? LIMIT 1" name])) :id))
 
@@ -81,12 +82,11 @@
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM lead_centres WHERE name = ? LIMIT 1" name])) :id))
 
-; FIXME: remove underscore
-(defn study_type
+(defn study-type
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM study_types WHERE name = ? LIMIT 1" name])) :id))
 
-; FIXME: use date directly istead of string date
+; FIXME: use date directly instead of string date
 (defn study-year
   [date]
   (if (empty? date)
@@ -118,13 +118,11 @@
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM interventions WHERE name = ? LIMIT 1" name])) :id))
 
-; FIXME: remove underscore
-(defn project_impact
+(defn project-impact
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM project_impacts WHERE name = ? LIMIT 1" name])) :id))
 
-; FIXME: remove underscore
-(defn project_purpose
+(defn project-purpose
   [name]
   (get (first (jdbc/query db-spec ["SELECT id FROM project_purposes WHERE name = ? LIMIT 1" name])) :id))
 
@@ -140,6 +138,12 @@
     (= "In Set-Up" value) "In set up"
     :else (str/trim value)))
 
+(defn on-portfolio
+  [value]
+  (cond
+    (= true (empty? value)) "Unknown"
+    :else (str/trim value)))
+
 ; FIXME: date may not always be in desired format
 (defn String->Date
   [date]
@@ -150,9 +154,8 @@
       (.parse (java.text.SimpleDateFormat. "dd/MM/yyyy") date)
       )))
 
-; FIXME: remove underscore
 ; FIXME: date may not always be in desired format
-(defn published_on
+(defn published-on
   [date]
   (String->Date date))
 
@@ -160,126 +163,279 @@
   (if (not-empty str)
     (Double/parseDouble str)))
 
-; FIXME: verify a status is unique by study id only
-; FIXME: add status missing
+(defn funding-category-name
+  [name]
+  (cond
+    (= "brc funded" (str/lower-case name)) "BRC Funding"
+    (= "research charity" (str/lower-case name)) "Research Charity"
+    (= "research council" (str/lower-case name)) "Research Council"
+    (= "industry collaborative" (str/lower-case name)) "Industry Collaborative"
+    (= "industry contract" (str/lower-case name)) "Industry Contract"
+    (= "dhsc/nihr" (str/lower-case name)) "DH/NIHR"
+    (= "other non-commercial" (str/lower-case name)) "Other Non-Commericial"
+    ))
+
+(defn funding-industry-sector
+  [name]
+  ; (println (str "Funding industry sector = " name))
+  (cond
+    (= "industry sector" (str/lower-case name)) "Industry Sector"
+    (= "pharma" (str/lower-case name)) "Pharma"
+    (= "biotech" (str/lower-case name)) "Biotech"
+    (= "medtech/device" (str/lower-case name)) "Medtech/Device"
+    (= "in vitro diagnostic" (str/lower-case name)) "In vitro diagnostic"
+    (= "contract research organisation" (str/lower-case name)) "Contract Research Organisation"
+    (= "non-life sciences company" (str/lower-case name)) "Non-life sciences company"
+    ))
+
+(defn nihr-research-programme
+  [name]
+  (cond
+    (= "eme" (str/lower-case name)) "Efficacy and Mechanism Evaluation (EME)"
+    (= "hs&dr" (str/lower-case name)) "Health Service & Delivery Research Programme (HS&DR)"
+    (= "hta" (str/lower-case name)) "Health Technology Assessment (HTA)"
+    (= "i4i" (str/lower-case name)) "Invention for Innovation (i4i)"
+    (= "pgfar" (str/lower-case name)) "Programme Grants for Applied Research (PGfAR)"
+    (= "other infrastructure" (str/lower-case name)) "Other infrastructure"
+    (= "other nihr funding" (str/lower-case name)) "Other NIHR funding"
+    ; (= "Public Health Research (PHR)" (str/lower-case name)) "Public Health Research (PHR)"
+    ; (= "Research for Patient Benefit (RfPB)" (str/lower-case name)) "Research for Patient Benefit (RfPB)"
+    ; (= "NIHR Research Schools" (str/lower-case name)) "NIHR Research Schools"
+    ))
+
+; FIXME: verify the year of a stutus is current financial year
+; FIXME: verify what to do about missing statuses
 (defn create-study-status
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def study-title (get row :title))
-    (def study (first (jdbc/query db-spec ["SELECT * FROM studies WHERE title = ? LIMIT 1" study-title])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_statuses WHERE study_id = ? LIMIT 1" (get study :id)])))
-    (if (nil? duplicate)
-      (if-not (empty? (get row :status))
-        (if-not (= "Closed" (study-status (get row :status)))
-          (do (println "No duplicate")
-              (jdbc/execute! db-spec ["INSERT INTO study_statuses SET
-                                                  study_id = ?,
-                                                  year = ?,
-                                                  status = ?"
-                                                  (get study :id),
-                                                  (current-financial-year (java.util.Date.)),
-                                                  (study-status (get row :status))
-                                                  ])
-                                                  )
-          (println "Skipped:: Status is Closed"))
-        (println "Skipping import: Study has no status"))
-      (println "Duplicate found"))
-    )
+  [study row]
+  (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_statuses WHERE study_id = ? LIMIT 1" (get study :id)])))
+  (if (nil? duplicate)
+    (if-not (empty? (get row :status))
+      (if-not (= "Closed" (study-status (get row :status)))
+        (do (println "No Study Status duplicate")
+            (jdbc/execute! db-spec ["INSERT INTO study_statuses SET
+                                                study_id = ?,
+                                                year = ?,
+                                                status = ?"
+                                                (get study :id),
+                                                (current-financial-year (java.util.Date.)),
+                                                (study-status (get row :status))
+                                                ])
+                                                )
+        (println "Skipped:: Status is Closed"))
+      (println "Skipping import: Study has no status"))
+    (println "Duplicate Study Status found"))
   )
 
-; FIXME: verify a funding is unique by study id only
+; if duplicate is not present
+; then create lead centre and return id
+; else return duplicate id
+(defn create-lead-centre
+  [name]
+  (def duplicate (first (jdbc/query db-spec ["SELECT id FROM lead_centres WHERE name = ? LIMIT 1" name])))
+
+  (if (nil? duplicate)
+    (do
+      (println "No sponsor duplicate")
+      (println (str "Inserting lead center - " name))
+      (jdbc/execute! db-spec ["INSERT INTO lead_centres SET
+                                        name = ?",
+                                        name]))
+    (do
+      (println "Duplicate sponsor found")
+      (:id duplicate)
+      ))
+  )
+
 (defn create-organisation-involvement
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def study-title (get row :title))
-    (def lead-centre-id (lead-centre (get row :lead_centre_id)))
-    (def link-to-nihr-translational-research-collaboration (yes-no-to-int (get row :link_to_nihr_translational_research_collaboration)))
-    (def link-to-crf-cross-cutting-theme (yes-no-to-int (get row :project_link_to_crf_cct)))
-    (def link-to-crf-explanation (get row :project_link_to_crf_cct_detail))
-    (def study (first (jdbc/query db-spec ["SELECT id FROM studies WHERE title = ? LIMIT 1" study-title])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT study_id FROM organisation_involvement WHERE study_id = ? LIMIT 1" (get study :id)])))
+  [study row]
+  (def lead-centre-id (lead-centre (get row :lead_centre_id)))
+  (def sponsor-id (create-lead-centre (get row :sponsor)))
+  (def link-to-nihr-translational-research-collaboration (yes-no-to-int (get row :link_to_nihr_translational_research_collaboration)))
+  (def link-to-crf-cross-cutting-theme (yes-no-to-int (get row :project_link_to_crf_cct)))
+  (def link-to-crf-explanation (get row :project_link_to_crf_cct_detail))
+  (def duplicate (first (jdbc/query db-spec ["SELECT study_id FROM organisation_involvement WHERE study_id = ? LIMIT 1" (get study :id)])))
 
-    (if (nil? duplicate)
-      (do
-        (println "No duplicate")
-        (jdbc/execute! db-spec ["INSERT INTO organisation_involvement SET
-                                          study_id = ?,
-                                          lead_centre_id = ?,
-                                          link_to_nihr_translational_research_collaboration = ?,
-                                          link_to_crf_cross_cutting_theme = ?,
-                                          link_to_crf_explanation = ?",
-                                          (get study :id),
-                                          lead-centre-id,
-                                          link-to-nihr-translational-research-collaboration,
-                                          link-to-crf-cross-cutting-theme,
-                                          link-to-crf-explanation
-                                          ]))
-      (println "Duplicate found"))
-    )
+  (if (nil? duplicate)
+    (do
+      (println "No Organisation Involvement duplicate")
+      (jdbc/execute! db-spec ["INSERT INTO organisation_involvement SET
+                                        study_id = ?,
+                                        lead_centre_id = ?,
+                                        sponsor_id = ?,
+                                        link_to_nihr_translational_research_collaboration = ?,
+                                        link_to_crf_cross_cutting_theme = ?,
+                                        link_to_crf_explanation = ?",
+                                        (get study :id),
+                                        lead-centre-id,
+                                        sponsor-id,
+                                        link-to-nihr-translational-research-collaboration,
+                                        link-to-crf-cross-cutting-theme,
+                                        link-to-crf-explanation
+                                        ]))
+    (println "Duplicate Organisation Involvement found"))
   )
 
-; FIXME: verify a funding is unique by study id only
-(defn create-study-funding
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def study-title (get row :title))
-    (def study (first (jdbc/query db-spec ["SELECT id FROM studies WHERE title = ? LIMIT 1" study-title])))
-    (def funding-category (first (jdbc/query db-spec ["SELECT id FROM funding_categories WHERE name = ? LIMIT 1" (get row :main_funding_category)])))
-    (def funding-category (first (jdbc/query db-spec ["SELECT id FROM funding_categories WHERE name = ? LIMIT 1" (get row :main_funding_category)])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_funding WHERE study_id = ? LIMIT 1" (get study :id)])))
+(defn create-study-assignment
+  [study row]
+  (def title (parse-title (get row :project_lead_title)))
+  (def first-name (get row :firstname))
+  (def surname (get row :surname))
+  (def person (first (jdbc/query db-spec ["SELECT * FROM people WHERE title = ? AND first_name = ? AND surname = ? LIMIT 1" title first-name surname])))
+  (def acting-capacity (first (jdbc/query db-spec ["SELECT id FROM acting_capacities WHERE name = ? LIMIT 1" "Principal Investigator"])))
+  (def duplicate (first (jdbc/query db-spec ["SELECT study_id FROM study_assignments WHERE study_id = ? AND acting_capacity_id = ? AND person_id = ? LIMIT 1" (:id study) (:id acting-capacity) (:id person)])))
 
-    (if (nil? duplicate)
-      (do
-        (println "No duplicate found")
-        (jdbc/execute! db-spec ["INSERT INTO study_funding set
-                                  main_funding_source = ?,
-                                  funding_category_id = ?,
-                                  brc_funding_amount = ?,
-                                  study_id = ?"
-                                  (get row :main_funding_source),
-                                  (get funding-category :id),
-                                  (String->Double (get row :main_funding_brc)),
-                                  (get study :id)
-                                  ])
-        )
-      (println "Duplicate found")
+  (if (nil? duplicate)
+    (if-not (nil? person)
+      (if-not (empty? (:start_date row))
+        (do
+          (println "No duplicate Study Assignment")
+          (jdbc/execute! db-spec ["INSERT INTO study_assignments SET
+                                            study_id = ?,
+                                            person_id = ?,
+                                            acting_capacity_id = ?,
+                                            started_on = ?",
+                                            (:id study),
+                                            (:id person),
+                                            (:id acting-capacity)
+                                            (String->Date (:start_date row))
+                                            ]))
+        (println "Skipping Study Assignment: PI started on (study start date) is not present"))
+      (println "Skipping Study Assignment: PI is not present"))
+    (println "Duplicate Study Assignment found"))
+  )
+
+(defn create-recruitment
+  [study row]
+  (def duplicate (first (jdbc/query db-spec ["SELECT study_id FROM recruitment WHERE study_id = ? AND year = ? LIMIT 1" (:id study) "2019"])))
+
+  (if (nil? duplicate)
+    (do
+      (println "No duplicate Recruitment")
+      (jdbc/execute! db-spec ["INSERT INTO recruitment SET
+                                        study_id = ?,
+                                        year = ?,
+                                        total = ?",
+                                        (:id study),
+                                        "2019",
+                                        (String->Double (:participants_recruited_to_centre_fy_18_19 row))
+                                        ]))
+    (println "Duplicate Recruitment found"))
+  )
+
+(defn create-study-funding-default
+  [row funding-category study duplicate]
+  (println "Creating funding default")
+  (if (nil? duplicate)
+    (do
+      (println "No Study Funding duplicate found")
+      (jdbc/execute! db-spec ["INSERT INTO study_funding set
+                                main_funding_source = ?,
+                                funding_category_id = ?,
+                                study_id = ?,
+                                total_external_funding_awarded_to_the_brc = ?"
+                                (:main_funding_source row)
+                                (:id funding-category)
+                                (:id study)
+                                (String->Double (:total_external_funding_awarded row))
+                                ])
       )
+    (println "Duplicate Study Funding found")
     )
   )
+
+(defn create-study-funding-brc
+  [row funding-category study duplicate]
+  (println "Creating funding BRC")
+  (if (nil? duplicate)
+    (jdbc/execute! db-spec ["INSERT INTO study_funding set
+                            main_funding_source = ?,
+                            funding_category_id = ?,
+                            study_id = ?,
+                            brc_funding_amount = ?,
+                            total_external_funding_awarded_to_the_brc = ?"
+                            (:main_funding_source row)
+                            (:id funding-category)
+                            (:id study)
+                            (String->Double (:main_funding_brc row))
+                            (String->Double (:total_external_funding_awarded row))
+                            ])
+    (println "Duplicate Study Funding found")
+    ))
+
+(defn create-study-funding-industry
+  [row funding-category study duplicate]
+  (println "Creating funding Industry")
+  (println (:main_funding_industry_collaborative_or_industry_contract row))
+  (if (nil? duplicate)
+    (jdbc/execute! db-spec ["INSERT INTO study_funding set
+                            main_funding_source = ?,
+                            funding_category_id = ?,
+                            study_id = ?,
+                            industry_sector = ?,
+                            total_external_funding_awarded_to_the_brc = ?"
+                            (:main_funding_source row)
+                            (:id funding-category)
+                            (:id study)
+                            (funding-industry-sector (:main_funding_industry_collaborative_or_industry_contract row))
+                            (String->Double (:total_external_funding_awarded row))
+                            ])
+    (println "Duplicate Study Funding found")
+    )
+  )
+
+(defn create-study-funding-dhsc-nihr
+  [row funding-category study duplicate]
+  (println "Creating funding DI/NIHR")
+  (if (nil? duplicate)
+    (jdbc/execute! db-spec ["INSERT INTO study_funding set
+                            main_funding_source = ?,
+                            funding_category_id = ?,
+                            study_id = ?,
+                            nihr_research_programme = ?,
+                            total_external_funding_awarded_to_the_brc = ?"
+                            (:main_funding_source row)
+                            (:id funding-category)
+                            (:id study)
+                            (nihr-research-programme (:main_funding_dhsc_or_nihr row))
+                            (String->Double (:total_external_funding_awarded row))
+                            ])
+    (println "Duplicate Study Funding found")
+    )
+  )
+
+(defn create-study-funding
+  [study row]
+  (def study-title (get row :title))
+  (def study (first (jdbc/query db-spec ["SELECT id FROM studies WHERE title = ? LIMIT 1" study-title])))
+  (def funding-category (first (jdbc/query db-spec ["SELECT id, name FROM funding_categories WHERE name = ? LIMIT 1" (funding-category-name (:main_funding_category row))])))
+  (def duplicate (first (jdbc/query db-spec ["SELECT * FROM study_funding WHERE study_id = ? LIMIT 1" (get study :id)])))
+
+  (cond
+    (= "BRC Funding" (:name funding-category)) (create-study-funding-brc row funding-category study duplicate)
+    (= "Industry Collaborative" (:name funding-category)) (create-study-funding-industry row funding-category study duplicate)
+    (= "Industry Contract" (:name funding-category)) (create-study-funding-industry row funding-category study duplicate)
+    (= "DH/NIHR" (:name funding-category)) (create-study-funding-dhsc-nihr row funding-category study duplicate)
+    :else (create-study-funding-default row funding-category study duplicate)
+    ))
 
 (defn create-person-roles
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def title (parse-title (get row :title)))
-    (def first-name (get row :first_name))
-    (def surname (get row :surname))
-    (def role-id (role (get row :role_id)))
-    (def person (first (jdbc/query db-spec ["SELECT * FROM people WHERE title = ? AND first_name = ? AND surname = ? LIMIT 1" title first-name surname])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM people_roles WHERE person_id = ? AND role_id = ? LIMIT 1" (get person :id) role-id])))
-
-    (if (nil? duplicate)
-      (do
-        (println "No duplicate")
-        (if-not (nil? role-id)
-          (jdbc/execute! db-spec ["insert ignore into red_icl_production.people_roles set person_id = ?, role_id = ?", (get person :id), role-id])
-          (println "SKIPPED: missing role id"))
-        )
-        (println "SKIPPED: duplicate"))
-    )
+  [person role-id]
+  (def duplicate (first (jdbc/query db-spec ["SELECT * FROM people_roles WHERE person_id = ? AND role_id = ? LIMIT 1" (get person :id) role-id])))
+  (if (nil? duplicate)
+    (do
+      (println "No duplicate")
+      (if-not (nil? role-id)
+        (jdbc/execute! db-spec ["insert ignore into red_icl_production.people_roles set person_id = ?, role_id = ?", (get person :id), role-id])
+        (println "SKIPPED: missing role id"))
+      )
+      (println "SKIPPED: duplicate"))
   )
 
 ; FIXME: confirm object type format (lower case singular of table name)
 (defn create-person-theme-associations
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def title (parse-title (get row :title)))
-    (def first-name (get row :first_name))
-    (def surname (get row :surname))
-    (def research-theme-id (research-theme (get row :primary_theme)))
-    (def person (first (jdbc/query db-spec ["SELECT * FROM people WHERE title = ? AND first_name = ? AND surname = ? LIMIT 1" title first-name surname])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT id FROM theme_associations WHERE object_id = ? AND object_type = ? AND theme_id = ? LIMIT 1" (get person :id), "person", research-theme-id])))
-
-      (if (nil? duplicate)
+  [person research-theme-id]
+  (def duplicate (first (jdbc/query db-spec ["SELECT id FROM theme_associations WHERE object_id = ? AND object_type = ? AND theme_id = ? LIMIT 1" (get person :id), "person", research-theme-id])))
+  (if (nil? duplicate)
         (if-not (nil? research-theme-id)
           (do
             (println "No duplicate found")
@@ -293,57 +449,6 @@
           (println "Skipping import: Person has no research theme"))
         (println "Duplicate found")
         )
-    )
-  )
-
-(defn create-study-theme-associations
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def study-title (get row :title))
-    (def research-theme-id (research-theme (get row :research_theme_id)))
-    (def study (first (jdbc/query db-spec ["SELECT id FROM studies WHERE title = ? LIMIT 1" study-title])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM theme_associations WHERE object_id = ? AND object_type = ? AND theme_id = ? LIMIT 1" (get study :id), "study", research-theme-id])))
-
-    (if (nil? duplicate)
-      (if-not (nil? research-theme-id)
-        (do
-          (println "No duplicate found")
-          (jdbc/execute! db-spec ["INSERT INTO theme_associations SET object_id = ?,
-                                                                             object_type = ?,
-                                                                             theme_id = ?",
-                                                                             (get study :id),
-                                                                             "study",
-                                                                             research-theme-id
-                                                                             ]))
-        (println "Skipping import: Study has no research theme"))
-      (println "Duplicate found")
-      )
-    )
-  )
-
-(defn create-publication-theme-associations
-  [raw-csv-data]
-  (doseq [row raw-csv-data]
-    (def reference (get row :reference))
-    (def research-theme-id (research-theme (get row :research_theme_id)))
-    (def publication (first (jdbc/query db-spec ["SELECT id FROM publications WHERE reference = ? LIMIT 1" reference])))
-    (def duplicate (first (jdbc/query db-spec ["SELECT * FROM theme_associations WHERE object_id = ? AND object_type = ? AND theme_id = ? LIMIT 1" (get publication :id), "publication", research-theme-id])))
-
-    (if (nil? duplicate)
-      (if-not (nil? research-theme-id)
-        (do
-          (println "No duplicate found")
-          (jdbc/execute! db-spec ["INSERT INTO theme_associations SET object_id = ?,
-                                                                             object_type = ?,
-                                                                             theme_id = ?",
-                                                                             (get publication :id),
-                                                                             "publication",
-                                                                             research-theme-id
-                                                                             ]))
-        (println "Skipping import: Study has no research theme"))
-      (println "Duplicate found")
-      )
-    )
   )
 
 (defn pre-process-studies
@@ -358,14 +463,11 @@
       :lead_centre_id
       :link_to_nihr_translational_research_collaboration
       :firstname
-      :crn_portfolio_trial
       :orcid_id
       :status
       :total_external_funding_awarded
       :main_funding_dhsc_or_nihr
       :main_funding_category
-      ; :research_programme_id
-      ; :research_theme_id
       :project_link_to_crf_cct
       :contract_research_organisation
       :project_lead_title
@@ -386,7 +488,9 @@
     (map (fn [csv-record]
           (update csv-record :research_theme_id #(research-theme %))))
     (map (fn [csv-record]
-          (update csv-record :research_type_id #(research_type %))))
+          (update csv-record :research_programme_id #(research-programme %))))
+    (map (fn [csv-record]
+          (update csv-record :research_type_id #(research-type %))))
     (map (fn [csv-record]
           (update csv-record :randomised #(yes-no-to-int %))))
     (map (fn [csv-record]
@@ -394,13 +498,15 @@
     (map (fn [csv-record]
           (update csv-record :rec_approval_required #(yes-no-to-int %))))
     (map (fn [csv-record]
-          (update csv-record :study_type_id #(study_type %))))
+          (update csv-record :study_type_id #(study-type %))))
     (map (fn [csv-record]
           (update csv-record :primary_intervention_id #(intervention %))))
     (map (fn [csv-record]
-          (update csv-record :project_impact_id #(project_impact %))))
+          (update csv-record :project_impact_id #(project-impact %))))
     (map (fn [csv-record]
-          (update csv-record :project_purpose_id #(project_purpose %))))
+          (update csv-record :project_purpose_id #(project-purpose %))))
+    (map (fn [csv-record]
+          (update csv-record :on_portfolio #(on-portfolio %))))
     ))
 
 (defn pre-process-people
@@ -426,7 +532,7 @@
     (map (fn [csv-record]
            (update csv-record :research_theme_id #(research-theme %))))
     (map (fn [csv-record]
-           (update csv-record :published_on #(published_on %))))
+           (update csv-record :published_on #(published-on %))))
     (map (fn [csv-record]
            (update csv-record :nihr_acknowledgement #(yes-no-to-int %))))
     (map (fn [csv-record]
@@ -435,14 +541,32 @@
 
 (defn post-process-studies
   [raw-csv-data]
-  (create-study-funding raw-csv-data)
-  (create-organisation-involvement raw-csv-data)
-  (create-study-status raw-csv-data))
+  (doseq [row raw-csv-data]
+    (def study-title (get row :title))
+    (def study (first (jdbc/query db-spec ["SELECT id FROM studies WHERE title = ? LIMIT 1" study-title])))
+    (println (str "Study ID: " (:id study)))
+    (create-study-funding study row)
+    (create-organisation-involvement study row)
+    (create-study-status study row)
+    (create-study-assignment study row)
+    (create-recruitment study row)
+    )
+  )
 
 (defn post-process-people
   [raw-csv-data]
-  (create-person-theme-associations raw-csv-data)
-  (create-person-roles raw-csv-data))
+  (doseq [row raw-csv-data]
+    (def title (parse-title (get row :title)))
+    (def first-name (get row :first_name))
+    (def surname (get row :surname))
+    (def role-id (role (get row :role_id)))
+    (def person (first (jdbc/query db-spec ["SELECT * FROM people WHERE title = ? AND first_name = ? AND surname = ? LIMIT 1" title first-name surname])))
+    (def research-theme-id (research-theme (get row :primary_theme)))
+    (println (str "Person ID: " (:id person)))
+    (create-person-theme-associations person research-theme-id)
+    (create-person-roles person role-id)
+    )
+  )
 
 (defn import-csv-file
  [csv-file]
@@ -455,14 +579,16 @@
                     (#(if (= table "people") (pre-process-people %) %))
                     (#(if (= table "publications") (pre-process-publications %) %))))
 
-  (import-csv table csv-data)
+  ; (import-csv table csv-data)
 
   (if (= table "people")
     (post-process-people raw-csv-data)
     )
 
   (if (= table "studies")
-    (post-process-studies raw-csv-data)))
+    (post-process-studies raw-csv-data)
+    )
+    )
 
 (defn -main
   [csv-file]
