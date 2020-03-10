@@ -1,6 +1,6 @@
 # csv-to-sql
 
-A Clojure library designed to import a CSV file into an SQL table. It can be run directly from the command line by passing a path to the CSV. Post-processing of the CSV data can be achieved with post-process methods that take in the raw data and performs a series of operations for the desired output, e.g converting a string date to a valid MySQL date.
+A Clojure library designed to import a CSV file into an SQL table. It can be run directly from the command line by passing in a path to the CSV to be imported.
 
 ## Env
 
@@ -9,9 +9,11 @@ Ensure the following variable are available
 DB_NAME_RED_PROD_ICL  
 DB_USER_RED_PROD_ICL  
 DB_HOST_RED_PROD_ICL  
-DB_PASSWORD_RED_PROD_ICL  
+DB_PASSWORD_RED_PROD_ICL
 
 ## Usage
+
+Ensure you have cleaned up the headers for your table. The app will replace spaces for underscores and downcase the result of header names.
 
 `lein run "resources/path/to/file.csv"`
 
